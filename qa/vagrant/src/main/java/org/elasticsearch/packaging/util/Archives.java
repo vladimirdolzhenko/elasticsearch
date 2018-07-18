@@ -186,7 +186,8 @@ public class Archives {
             "elasticsearch-env",
             "elasticsearch-keystore",
             "elasticsearch-plugin",
-            "elasticsearch-translog"
+            "elasticsearch-translog",
+            "elasticsearch-repair-index"
         ).forEach(executable -> {
 
             assertThat(es.bin(executable), file(File, owner, owner, p755));

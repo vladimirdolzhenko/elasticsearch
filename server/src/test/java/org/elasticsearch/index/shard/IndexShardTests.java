@@ -22,14 +22,11 @@ import org.apache.logging.log4j.Logger;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexCommit;
-import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.AlreadyClosedException;
-import org.apache.lucene.store.BaseDirectoryWrapper;
-import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.util.Constants;
 import org.elasticsearch.Version;
@@ -94,7 +91,6 @@ import org.elasticsearch.index.mapper.Uid;
 import org.elasticsearch.index.seqno.SeqNoStats;
 import org.elasticsearch.index.seqno.SequenceNumbers;
 import org.elasticsearch.index.snapshots.IndexShardSnapshotStatus;
-import org.elasticsearch.index.store.DirectoryService;
 import org.elasticsearch.index.store.Store;
 import org.elasticsearch.index.store.StoreStats;
 import org.elasticsearch.index.translog.TestTranslog;
@@ -112,7 +108,6 @@ import org.elasticsearch.snapshots.Snapshot;
 import org.elasticsearch.snapshots.SnapshotId;
 import org.elasticsearch.snapshots.SnapshotInfo;
 import org.elasticsearch.snapshots.SnapshotShardFailure;
-import org.elasticsearch.test.CorruptionUtils;
 import org.elasticsearch.test.DummyShardLock;
 import org.elasticsearch.test.FieldMaskingReader;
 import org.elasticsearch.test.VersionUtils;
@@ -120,7 +115,6 @@ import org.elasticsearch.threadpool.ThreadPool;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2483,57 +2477,6 @@ public class IndexShardTests extends IndexShardTestCase {
         }
         assertTrue(stop.compareAndSet(false, true));
         thread.join();
-        closeShards(newShard);
-    }
-
-    public void testIndexCheckChecksum() throws Exception {
-        final boolean primary = true;
-
-        IndexShard indexShard = newStartedShard(primary);
-
-        final long numDocs = between(10, 100);
-        for (long i = 0; i < numDocs; i++) {
-            indexDoc(indexShard, "_doc", Long.toString(i), "{}");
-        }
-        indexShard.flush(new FlushRequest());
-        closeShards(indexShard);
-
-        // corrupt files
-        final ShardPath shardPath = indexShard.shardPath();
-        final Path dataPath = shardPath.getDataPath();
-        final Path[] filesToCorrupt =
-            Files.walk(dataPath)
-                .filter(p -> Files.isRegularFile(p) && IndexWriter.WRITE_LOCK_NAME.equals(p.getFileName().toString()) == false)
-                .toArray(Path[]::new);
-        CorruptionUtils.corruptFile(random(), filesToCorrupt);
-
-        final ShardRouting shardRouting = ShardRoutingHelper.initWithSameId(indexShard.routingEntry(),
-            primary ? RecoverySource.StoreRecoverySource.EXISTING_STORE_INSTANCE : RecoverySource.PeerRecoverySource.INSTANCE
-        );
-        final IndexMetaData indexMetaData = IndexMetaData.builder(indexShard.indexSettings().getIndexMetaData())
-            .settings(Settings.builder()
-                .put(indexShard.indexSettings.getSettings())
-                .put(IndexSettings.INDEX_CHECK_ON_STARTUP.getKey(), "checksum"))
-            .build();
-
-        final IndexShard newShard = newShard(shardRouting, shardPath, indexMetaData,
-            null, indexShard.engineFactory,
-            indexSettings -> {
-                final ShardId shardId = shardPath.getShardId();
-                final DirectoryService directoryService = new DirectoryService(shardId, indexSettings) {
-                    @Override
-                    public Directory newDirectory() throws IOException {
-                        final BaseDirectoryWrapper baseDirectoryWrapper = newFSDirectory(shardPath.resolveIndex());
-                        baseDirectoryWrapper.setCheckIndexOnClose(false);
-                        return baseDirectoryWrapper;
-                    }
-                };
-                return new Store(shardId, indexSettings, directoryService, new DummyShardLock(shardId));
-            },
-            indexShard.getGlobalCheckpointSyncer(), EMPTY_EVENT_LISTENER);
-
-        expectThrows(IndexShardRecoveryException.class, () -> newStartedShard(p -> newShard, primary));
-
         closeShards(newShard);
     }
 
