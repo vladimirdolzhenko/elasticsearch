@@ -360,18 +360,6 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
         }
     }
 
-    /**
-     * Repairs the index using the previous returned status from {@link #checkIndex(PrintStream)}.
-     */
-    public void exorciseIndex(CheckIndex.Status status) throws IOException {
-        metadataLock.writeLock().lock();
-        try (CheckIndex checkIndex = new CheckIndex(directory)) {
-            checkIndex.exorciseIndex(status);
-        } finally {
-            metadataLock.writeLock().unlock();
-        }
-    }
-
     public StoreStats stats() throws IOException {
         ensureOpen();
         return new StoreStats(directory.estimateSize());
